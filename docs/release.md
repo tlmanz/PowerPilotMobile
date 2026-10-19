@@ -1,8 +1,7 @@
 # Play Store release (CircleCI)
 
 How a commit becomes a build on Google Play's internal testing track. The
-pipeline is `.circleci/config.yml`, after klutch-app's (its
-`docs/14-play-release.md` has the longer story behind each choice).
+pipeline is `.circleci/config.yml`.
 
 ```
 push a branch  ──► verify             analyze · format · tests · release-notes dry run
@@ -39,8 +38,8 @@ users' phones check. The trade: if it leaks, it can upload to every app that
 uses it, until Play support resets each one.
 
 Play ties an app to the upload key of its first accepted upload, so a new app's
-first bundle must be signed with this key. (klutch-app predates it and stays on
-its own key and its own `klutch-play` context.)
+first bundle must be signed with this key. An app first uploaded with another
+key stays on that key, unless Play support resets it.
 
 Keep the file and its password in a password manager. For local release builds,
 `android/key.properties` (git-ignored) in each app:
@@ -61,8 +60,8 @@ every app in the developer account: access is granted app by app.
 
 1. Play Console → *Setup → API access*: link a Google Cloud project, then create
    a service account there (*IAM → Service accounts*) and *Keys → Add key →
-   JSON*. Or reuse one you already have, such as klutch-app's: you need its
-   JSON key file, since CircleCI won't show the saved one again.
+   JSON*. Or reuse one you already have: you need its JSON key file, since
+   CircleCI never shows a saved value again.
 2. Play Console → *Users and permissions* → the service account (invite its
    email if it isn't listed) → *App permissions → Add app* → each app, with
    *Release to testing tracks* and *View app information*. Permissions are

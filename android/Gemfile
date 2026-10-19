@@ -1,6 +1,6 @@
-# fastlane, used only to upload the bundle to Play (docs/release.md). Pinned,
-# as in klutch-app; `bundle update fastlane` is a deliberate change. Commit
-# Gemfile.lock with it.
+# fastlane, used only to upload the bundle to Play (docs/release.md). Pinned;
+# `bundle update fastlane` is a deliberate change. No Gemfile.lock: one written
+# by a newer Bundler than CI's image has makes `bundle install` try to switch to it.
 source "https://rubygems.org"
 
 gem "fastlane", "2.237.0"

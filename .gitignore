@@ -45,6 +45,7 @@ app.*.map.json
 /android/fastlane/report.xml
 /android/vendor/
 /android/.bundle/
+/android/Gemfile.lock
 /android/build/
 
 # Android Studio will place build artifacts here

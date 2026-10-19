@@ -419,44 +419,66 @@ class Bar {
   final bool failed;
 }
 
-/// The Trends bar chart: equal bars on a hairline baseline.
+/// The Trends bar chart: equal bars on a hairline baseline. With [onSelect], a
+/// tap picks the bar under it (or nothing, tapping it again), and the picked
+/// bar is drawn in ink.
 class BarChart extends StatelessWidget {
-  const BarChart(this.bars, {super.key, this.height = 72, this.empty = 'Waiting for data…'});
+  const BarChart(this.bars, {super.key, this.height = 72, this.empty = 'Waiting for data…', this.selected, this.onSelect});
 
   final List<Bar?> bars;
   final double height;
   final String empty;
+  final int? selected;
+  final ValueChanged<int?>? onSelect;
 
   @override
-  Widget build(BuildContext context) => Container(
-    height: height,
-    decoration: const BoxDecoration(
-      border: Border(bottom: BorderSide(color: AppColors.hairline)),
-    ),
-    child: bars.every((b) => b == null)
-        ? Center(
-            child: Text(empty, style: text(12, color: AppColors.ink3)),
-          )
-        : Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              for (var i = 0; i < bars.length; i++) ...[
-                if (i > 0) const SizedBox(width: 2),
-                Expanded(
-                  child: bars[i] == null
-                      ? const SizedBox()
-                      : Container(
-                          height: bars[i]!.failed ? 2 : math.max(3, bars[i]!.fraction.clamp(0, 1) * (height - 1)),
-                          decoration: BoxDecoration(
-                            color: bars[i]!.failed ? AppColors.critical : bars[i]!.color,
-                            borderRadius: bars[i]!.failed ? null : const BorderRadius.vertical(top: Radius.circular(2)),
-                          ),
-                        ),
-                ),
-              ],
-            ],
+  Widget build(BuildContext context) {
+    final chart = Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        for (var i = 0; i < bars.length; i++) ...[
+          if (i > 0) const SizedBox(width: 2),
+          Expanded(
+            child: bars[i] == null
+                ? const SizedBox()
+                : Container(
+                    height: bars[i]!.failed ? 2 : math.max(3, bars[i]!.fraction.clamp(0, 1) * (height - 1)),
+                    decoration: BoxDecoration(
+                      color: i == selected
+                          ? AppColors.ink
+                          : bars[i]!.failed
+                          ? AppColors.critical
+                          : bars[i]!.color,
+                      borderRadius: bars[i]!.failed ? null : const BorderRadius.vertical(top: Radius.circular(2)),
+                    ),
+                  ),
           ),
-  );
+        ],
+      ],
+    );
+    return Container(
+      height: height,
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: AppColors.hairline)),
+      ),
+      child: bars.every((b) => b == null)
+          ? Center(
+              child: Text(empty, style: text(12, color: AppColors.ink3)),
+            )
+          : onSelect == null
+          ? chart
+          : LayoutBuilder(
+              builder: (context, c) => GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTapDown: (d) {
+                  final i = (d.localPosition.dx / c.maxWidth * bars.length).floor().clamp(0, bars.length - 1);
+                  onSelect!(bars[i] == null || i == selected ? null : i);
+                },
+                child: chart,
+              ),
+            ),
+    );
+  }
 }
 
 // Events: an icon per kind, as PowerPilot's js/ui/events.js picks them, and a

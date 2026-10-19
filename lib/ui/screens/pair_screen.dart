@@ -147,7 +147,8 @@ class _PairScreenState extends State<PairScreen> {
           builder: (context, c) => SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
             child: ConstrainedBox(
-              constraints: BoxConstraints(minHeight: c.maxHeight - 28),
+              // Never negative: Android's first frame can be zero high.
+              constraints: BoxConstraints(minHeight: (c.maxHeight - 28).clamp(0.0, double.infinity)),
               child: IntrinsicHeight(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

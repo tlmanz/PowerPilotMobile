@@ -2,10 +2,11 @@
 # release build gets exactly the version CI would. Nothing here names the app.
 
 # The versionName is the pubspec's `version:`. The versionCode is the number of
-# v* tags: one per release, so it can't be forgotten or reused. Never delete a
-# released tag; if one is wrong, tag forward.
+# v* tags up to and including this commit: one per release, so it can't be
+# forgotten or reused, and an older tag built later keeps its own number. Never
+# delete a released tag; if one is wrong, tag forward.
 VERSION_NAME := $(shell awk '/^version:/ {print $$2; exit}' pubspec.yaml | cut -d+ -f1)
-BUILD_NUMBER := $(shell git tag --list 'v[0-9]*' 2>/dev/null | wc -l | tr -d ' ')
+BUILD_NUMBER := $(shell git tag --list 'v[0-9]*' --merged HEAD 2>/dev/null | wc -l | tr -d ' ')
 
 .PHONY: help check-version build-aab changelog
 

@@ -1,8 +1,8 @@
 version: 2.1
 
-# CI and Play delivery for a Flutter app, after klutch-app's pipeline. Nothing
-# here names the app (the package is in android/fastlane/Appfile), so another
-# app can take this file as is. Setup and the secret inventory: docs/release.md.
+# CI and Play delivery for a Flutter app. Nothing here names the app (the
+# package is in android/fastlane/Appfile), so another app can take this file as
+# is. Setup and the secret inventory: docs/release.md.
 #
 #   verify   every branch push: analyze, format, tests, and a dry run of the
 #            release-notes generator, so a break in it shows up on a branch
@@ -126,7 +126,7 @@ jobs:
             tag_version="${CIRCLE_TAG#v}"
             semver="$(awk '/^version:/ {print $2; exit}' pubspec.yaml)"
             semver="${semver%%+*}"
-            code="$(git tag --list 'v[0-9]*' | wc -l | tr -d ' ')"
+            code="$(git tag --list 'v[0-9]*' --merged HEAD | wc -l | tr -d ' ')"
             echo "tag=$CIRCLE_TAG  pubspec=$semver  versionCode=$code"
             if [ "$tag_version" != "$semver" ]; then
               echo
@@ -218,7 +218,7 @@ jobs:
             python3 -c 'import json;d=json.load(open("android/fastlane/play-service-account.json"));print("service account:",d["client_email"])'
       - restore_cache:
           keys:
-            - bundler-{{ checksum "android/Gemfile.lock" }}
+            - bundler-{{ checksum "android/Gemfile" }}
       - run:
           name: Install fastlane
           command: |
@@ -227,7 +227,7 @@ jobs:
             bundle config set --local path vendor/bundle
             bundle install --jobs 4 --retry 3
       - save_cache:
-          key: bundler-{{ checksum "android/Gemfile.lock" }}
+          key: bundler-{{ checksum "android/Gemfile" }}
           paths:
             - android/vendor/bundle
       - fetch_tags

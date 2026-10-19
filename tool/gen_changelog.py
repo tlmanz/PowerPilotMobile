@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """Generate the Play release notes for the version being released.
 
-Ported from klutch-app's tool/gen_changelog.py. **The source is the code, not
-the commit log**: this reads the diff between the last *released* tag and this
+**The source is the code, not the commit log**: this reads the diff between the last *released* tag and this
 one, asks Google Gemini what a person using the app would notice, and writes
 the file `fastlane supply` uploads with the release:
 
@@ -49,8 +48,8 @@ MAX_CHARS = 500
 MAX_LINES = 4
 
 # Pinned, not an alias: an alias rolls forward to a model that may want a
-# different request shape (klutch-app learned this when Gemini 3 Flash refused
-# `thinkingBudget: 0`). Bump deliberately, and read the notes it writes.
+# different request shape (Gemini 3 Flash refuses the `thinkingBudget: 0` that
+# 2.5 Flash took). Bump deliberately, and read the notes it writes.
 DEFAULT_MODEL = "gemini-3.6-flash"
 THINKING_LEVEL = "minimal"
 API_HOST = "https://generativelanguage.googleapis.com"
@@ -148,10 +147,14 @@ def repo_root() -> Path:
     return Path(root) if root else here
 
 
-def release_tags(root: Path) -> list[str]:
-    """Every release tag, oldest first, by version (lightweight tags carry the
-    commit's date, which reorders the moment a release tags an older commit)."""
-    return run_git(["tag", "--list", "v[0-9]*", "--sort=v:refname"], root).split()
+def release_tags(root: Path, merged: str | None = None) -> list[str]:
+    """Release tags, oldest first, by version (lightweight tags carry the
+    commit's date, which reorders the moment a release tags an older commit).
+    With `merged`, only the tags up to and including that commit."""
+    args = ["tag", "--list", "v[0-9]*", "--sort=v:refname"]
+    if merged:
+        args += ["--merged", merged]
+    return run_git(args, root).split()
 
 
 def pubspec_version(root: Path) -> tuple[str, str]:
@@ -161,7 +164,7 @@ def pubspec_version(root: Path) -> tuple[str, str]:
     match = re.search(r"^version:\s*(\S+)", text, re.MULTILINE)
     if not match:
         sys.exit("pubspec.yaml has no 'version:' line.")
-    return match.group(1).partition("+")[0], str(len(release_tags(root)))
+    return match.group(1).partition("+")[0], str(len(release_tags(root, merged="HEAD")))
 
 
 def tag_for_version_code(root: Path, code: str) -> str | None:

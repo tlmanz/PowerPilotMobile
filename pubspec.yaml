@@ -4,7 +4,7 @@ publish_to: 'none'
 
 # The versionName only. The versionCode is the number of v* tags, which
 # `make build-aab` passes as --build-number (docs/release.md).
-version: 1.0.0
+version: 1.0.1
 
 environment:
   sdk: ^3.12.2

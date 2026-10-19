@@ -350,7 +350,9 @@ class _Hero extends StatelessWidget {
       decoration: cardDecoration,
       child: LayoutBuilder(
         builder: (context, c) {
-          final textWidth = math.min(200.0, c.maxWidth - 172);
+          // Never negative: Android's first frame can be zero wide, and a
+          // negative width there breaks the whole tree for good.
+          final textWidth = math.max(0.0, math.min(200.0, c.maxWidth - 172));
           return Stack(
             children: [
               Positioned(right: 2, top: 14, width: 150, height: 204, child: _UpsPicture(v)),
@@ -795,7 +797,7 @@ class _WireState extends State<_Wire> with SingleTickerProviderStateMixin {
           children: [
             Positioned(left: 0, right: 0, top: 23, height: 2, child: ColoredBox(color: widget.color)),
             Positioned(
-              left: (c.maxWidth - 8) * _run.value,
+              left: math.max(0.0, c.maxWidth - 8) * _run.value,
               top: 20,
               child: Container(
                 width: 8,

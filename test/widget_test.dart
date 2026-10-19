@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:powerpilot/data/pairing.dart';
 import 'package:powerpilot/main.dart';
 import 'package:powerpilot/state/controllers.dart';
+import 'package:powerpilot/ui/widgets.dart';
 
 /// Keeps the pairing in memory instead of the Keychain.
 class _MemoryStore extends PairingStore {
@@ -54,6 +55,25 @@ void main() {
     await _close(tester, app);
   });
 
+  // Android draws the first frame zero wide. A layout that went negative there
+  // broke the tree for good: every tab stayed blank.
+  testWidgets('a zero-size first frame leaves every screen drawable', (tester) async {
+    for (final paired in [null, const Pairing.demo()]) {
+      tester.view.physicalSize = Size.zero;
+      tester.view.devicePixelRatio = 3;
+      final app = AppController(store: _MemoryStore(paired));
+      await app.init();
+      await tester.pumpWidget(PowerPilotApp(app));
+      await tester.pump();
+      tester.view.physicalSize = const Size(390, 844) * 3;
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(tester.takeException(), isNull);
+      expect(find.text(paired == null ? 'Pair this phone' : 'Power Flow'), findsOneWidget);
+      await _close(tester, app);
+    }
+    tester.view.reset();
+  });
+
   testWidgets('home shows the demo UPS, and every tab opens', (tester) async {
     final app = await _launch(tester, paired: const Pairing.demo());
 
@@ -71,6 +91,18 @@ void main() {
     expect(find.text('Input voltage'), findsOneWidget);
     // The PRO2000SFCU reports no temperature, so there's no chart for it.
     expect(find.text('Temperature'), findsNothing);
+
+    // Tapping a bar reads it out in place of its card's Min/Max; tapping it
+    // again puts Min/Max back.
+    final minMax = find.textContaining('Min ');
+    final cards = tester.widgetList(minMax).length;
+    final newest = tester.getBottomRight(find.byType(BarChart).first) - const Offset(3, 10);
+    await tester.tapAt(newest);
+    await tester.pump();
+    expect(tester.widgetList(minMax).length, cards - 1);
+    await tester.tapAt(newest);
+    await tester.pump();
+    expect(tester.widgetList(minMax).length, cards);
 
     await tester.tap(find.text('Events'));
     await tester.pump(const Duration(milliseconds: 100));

@@ -1,5 +1,5 @@
-# Play delivery (docs/release.md), after klutch-app's. Nothing here names the
-# app: the package is in the Appfile, so another app can take this file as is.
+# Play delivery (docs/release.md). Nothing here names the app: the package is
+# in the Appfile, so another app can take this file as is.
 #
 # Uploading only: `make build-aab` builds the bundle (CI in a separate job), so
 # a failed upload never means a rebuild. Internal testing only; promoting a
@@ -13,8 +13,8 @@ default_platform(:android)
 
 # EVERY PATH HERE IS ABSOLUTE. fastlane evals this file with a relative name, so
 # `__dir__` is ".", and a lane body runs in android/fastlane while every action
-# runs in android/: a relative path means two things (klutch-app lost an upload
-# to exactly that). Anchor on the fastlane folder, once, at parse time.
+# runs in android/: a relative path means two things, and a release can lose
+# its upload to exactly that. Anchor on the fastlane folder, once, at parse time.
 FASTLANE_DIR = File.expand_path(FastlaneCore::FastlaneFolder.path).freeze
 UI.user_error!("Expected to be loaded from android/fastlane, got #{FASTLANE_DIR}") unless File.basename(FASTLANE_DIR) == "fastlane"
 
@@ -32,7 +32,7 @@ end
 # The versionCode is the number of v* tags, the same count the Makefile passes
 # as --build-number. nil without tags: then nothing can be named after it.
 def release_version_code
-  count = Dir.chdir(REPO_ROOT) { `git tag --list 'v[0-9]*'`.lines.count }
+  count = Dir.chdir(REPO_ROOT) { `git tag --list 'v[0-9]*' --merged HEAD`.lines.count }
   count.positive? ? count : nil
 rescue StandardError
   nil

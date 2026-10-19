@@ -202,7 +202,17 @@ class _TrendsScreenState extends State<TrendsScreen> {
           ),
         ),
         _RangePicker(current: _range, onPick: _pick),
-        for (final s in shown) _TrendCard(series: s, points: pts, start: start, end: now, range: _range, loading: _loading),
+        // Keyed by range, so a bar picked in one range doesn't carry over.
+        for (final s in shown)
+          _TrendCard(
+            key: ValueKey('${s.title}-${_range.name}'),
+            series: s,
+            points: pts,
+            start: start,
+            end: now,
+            range: _range,
+            loading: _loading,
+          ),
       ],
     );
   }
@@ -327,8 +337,9 @@ class _RangePicker extends StatelessWidget {
   );
 }
 
-class _TrendCard extends StatelessWidget {
+class _TrendCard extends StatefulWidget {
   const _TrendCard({
+    super.key,
     required this.series,
     required this.points,
     required this.start,
@@ -342,6 +353,21 @@ class _TrendCard extends StatelessWidget {
   final DateTime start, end;
   final _Range range;
   final bool loading;
+
+  @override
+  State<_TrendCard> createState() => _TrendCardState();
+}
+
+class _TrendCardState extends State<_TrendCard> {
+  /// The bar tapped to read its value; tapping it again clears it.
+  int? _selected;
+
+  _Series get series => widget.series;
+  List<_Point> get points => widget.points;
+  DateTime get start => widget.start;
+  DateTime get end => widget.end;
+  _Range get range => widget.range;
+  bool get loading => widget.loading;
 
   String _fmt(double v) => switch (series.kind) {
     _Kind.volts => '${number(v, 1)} V',
@@ -393,6 +419,10 @@ class _TrendCard extends StatelessWidget {
     ];
     String tick(DateTime t) => range.span > const Duration(days: 1) ? date(t) : clock(t);
 
+    // The live hour slides, so a picked bar can lose its readings.
+    final picked = _selected != null && _selected! < buckets.length && buckets[_selected!].value != null ? _selected : null;
+    final pickedAt = picked == null ? null : start.add(end.difference(start) * (picked / _bars));
+
     return AppCard(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -438,7 +468,21 @@ class _TrendCard extends StatelessWidget {
                   ],
                 ),
               ),
-              if (values.isNotEmpty)
+              if (picked != null)
+                Text.rich(
+                  TextSpan(
+                    text: '${range.span > const Duration(days: 1) ? dateTime(pickedAt!) : clock(pickedAt!)}\n',
+                    children: [
+                      TextSpan(
+                        text: _fmt(buckets[picked].value!),
+                        style: text(11, weight: FontWeight.w600, color: AppColors.ink, height: 1.35),
+                      ),
+                    ],
+                  ),
+                  textAlign: TextAlign.right,
+                  style: text(11, color: AppColors.ink3, height: 1.35),
+                )
+              else if (values.isNotEmpty)
                 Text(
                   'Min ${_fmt(values.reduce(math.min))}\nMax ${_fmt(values.reduce(math.max))}',
                   textAlign: TextAlign.right,
@@ -447,7 +491,12 @@ class _TrendCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          BarChart(bars, empty: loading ? 'Loading…' : 'No readings in this range'),
+          BarChart(
+            bars,
+            empty: loading ? 'Loading…' : 'No readings in this range',
+            selected: picked,
+            onSelect: (i) => setState(() => _selected = i),
+          ),
           const SizedBox(height: 12),
           Row(
             children: [
