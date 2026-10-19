@@ -1,0 +1,7 @@
+# The package Play knows. Permanent since the first upload.
+package_name("com.mannapperuma.powerpilot")
+
+# Google Play service-account key. CI writes it from the powerpilot-play
+# context; locally, export PLAY_JSON_KEY_FILE or put the file at the path below.
+# It's git-ignored and must never be committed (docs/release.md).
+json_key_file(ENV["PLAY_JSON_KEY_FILE"] || "fastlane/play-service-account.json")

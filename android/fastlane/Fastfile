@@ -1,0 +1,138 @@
+# Play delivery (docs/release.md), after klutch-app's. Nothing here names the
+# app: the package is in the Appfile, so another app can take this file as is.
+#
+# Uploading only: `make build-aab` builds the bundle (CI in a separate job), so
+# a failed upload never means a rebuild. Internal testing only; promoting a
+# release beyond it is a decision made in the Play Console, by hand.
+#
+#   internal               the bundle, plus the release notes for its versionCode
+#   released_version_code  read-only: the highest versionCode Play holds
+#   validate               a dry run of the upload, to check the service account
+
+default_platform(:android)
+
+# EVERY PATH HERE IS ABSOLUTE. fastlane evals this file with a relative name, so
+# `__dir__` is ".", and a lane body runs in android/fastlane while every action
+# runs in android/: a relative path means two things (klutch-app lost an upload
+# to exactly that). Anchor on the fastlane folder, once, at parse time.
+FASTLANE_DIR = File.expand_path(FastlaneCore::FastlaneFolder.path).freeze
+UI.user_error!("Expected to be loaded from android/fastlane, got #{FASTLANE_DIR}") unless File.basename(FASTLANE_DIR) == "fastlane"
+
+REPO_ROOT = File.expand_path("../..", FASTLANE_DIR).freeze
+AAB = (ENV["RELEASE_AAB"] || File.join(REPO_ROOT, "build/app/outputs/bundle/release/app-release.aab")).freeze
+
+# Point at metadata/android, not metadata: supply reads every subfolder as a
+# locale, so one level up makes "android" the language.
+METADATA = File.join(FASTLANE_DIR, "metadata", "android").freeze
+
+def changelog_for(version_code, locale: "en-US")
+  File.join(METADATA, locale, "changelogs", "#{version_code}.txt")
+end
+
+# The versionCode is the number of v* tags, the same count the Makefile passes
+# as --build-number. nil without tags: then nothing can be named after it.
+def release_version_code
+  count = Dir.chdir(REPO_ROOT) { `git tag --list 'v[0-9]*'`.lines.count }
+  count.positive? ? count : nil
+rescue StandardError
+  nil
+end
+
+# A promotion moves a versionCode to another track, so what testers and users
+# have is the highest across all of them.
+PLAY_TRACKS = %w[internal alpha beta production].freeze
+
+# Where `released_version_code` leaves its answer, for the changelog step and
+# for `internal`. Repo-root build/ is git-ignored.
+PLAY_VERSION_CODE_FILE = File.join(REPO_ROOT, "build", "play-version-code.txt").freeze
+
+def play_highest_version_code
+  File.exist?(PLAY_VERSION_CODE_FILE) ? File.read(PLAY_VERSION_CODE_FILE).to_i : nil
+end
+
+platform :android do
+  before_all do |lane|
+    next unless [:internal, :validate].include?(lane)
+
+    UI.message("AAB: #{AAB}")
+    UI.user_error!("No AAB at #{AAB} (fastlane cwd: #{Dir.pwd}). Build it first: make build-aab") unless File.exist?(AAB)
+  end
+
+  desc "Upload the bundle and its release notes to internal testing."
+  lane :internal do
+    code = release_version_code
+    held = play_highest_version_code
+
+    # 1.0.0 went up by hand (the API can't create an app's first release), and
+    # its tag still runs this pipeline. Play refuses a versionCode it has seen,
+    # so a tag whose code is already there is done, not failed.
+    if code && held && held >= code
+      UI.important("Play already holds versionCode #{held}, and this is #{code}: nothing to upload.")
+      next
+    end
+
+    notes = code && changelog_for(code)
+    if notes && File.exist?(notes)
+      UI.message("Release notes (#{File.basename(notes)}):")
+      UI.message(File.read(notes).strip)
+    else
+      # Not fatal: Play takes a release without notes, and holding back a
+      # verified, signed bundle over missing copy is the wrong trade.
+      UI.important("No release notes at #{notes || '<no versionCode>'}: uploading without them.")
+    end
+
+    # Checked here: supply only looks at metadata_path after the upload.
+    UI.user_error!("No metadata tree at #{METADATA}: supply reads the release notes from it.") unless File.directory?(METADATA)
+
+    upload_to_play_store(
+      track: "internal",
+      aab: AAB,
+      # The repo owns the binary and its release notes; the listing and the
+      # declarations live in the Play Console, so leave them alone.
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: false,
+      metadata_path: METADATA,
+      validate_only: false,
+    )
+  end
+
+  # Read-only, and never on the critical path: the changelog starts from the
+  # release testers actually received, which only Play knows (a tag whose
+  # upload failed is still in git).
+  desc "Write the highest versionCode Play holds to build/play-version-code.txt."
+  lane :released_version_code do
+    codes = PLAY_TRACKS.flat_map do |track|
+      google_play_track_version_codes(track: track)
+    rescue StandardError => e
+      UI.important("Could not read track '#{track}': #{e.message}")
+      []
+    end.compact
+
+    if codes.empty?
+      UI.important("Play reports no versionCode on #{PLAY_TRACKS.join(', ')}.")
+      next
+    end
+
+    highest = codes.max
+    FileUtils.mkdir_p(File.dirname(PLAY_VERSION_CODE_FILE))
+    File.write(PLAY_VERSION_CODE_FILE, "#{highest}\n")
+    UI.success("Play holds versionCode #{highest} (of #{codes.uniq.sort.join(', ')})")
+  end
+
+  desc "Dry run: check the service account and the bundle without creating a release."
+  lane :validate do
+    upload_to_play_store(
+      track: "internal",
+      aab: AAB,
+      skip_upload_apk: true,
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true,
+      skip_upload_changelogs: true,
+      validate_only: true,
+    )
+  end
+end

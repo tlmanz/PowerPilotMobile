@@ -1,0 +1,7 @@
+First test release of PowerPilot for Android.
+• Pair with your PowerPilot server: scan the QR code on its admin page, or paste the link. Or try the demo.
+• Live battery charge, runtime, load and power flow, with an alarm banner and Mute.
+• Controls: UPS alarm, self-test, graceful shutdown and restart.
+• Trends from the last hour to 30 days.
+• Events by day, with CSV export.
+Not yet: push notifications.

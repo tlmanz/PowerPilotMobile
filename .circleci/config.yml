@@ -1,0 +1,308 @@
+version: 2.1
+
+# CI and Play delivery for a Flutter app, after klutch-app's pipeline. Nothing
+# here names the app (the package is in android/fastlane/Appfile), so another
+# app can take this file as is. Setup and the secret inventory: docs/release.md.
+#
+#   verify   every branch push: analyze, format, tests, and a dry run of the
+#            release-notes generator, so a break in it shows up on a branch
+#            rather than mid-release.
+#   release  a vX.Y.Z tag only: verify, build the signed AAB, write the release
+#            notes from the code diff (Gemini), upload both to Play's internal
+#            testing track. Nothing goes further than internal testing.
+#
+# Secrets come from play-release, one context shared by every app: the upload
+# keystore and its passwords (one upload key for all of them), the Play service
+# account (granted each app in the Play Console) and GEMINI_API_KEY.
+
+parameters:
+  flutter_version:
+    description: The pinned Flutter SDK; keep it in step with local builds.
+    type: string
+    default: "3.44.5"
+
+executors:
+  android:
+    docker:
+      # The Android SDK and JDK 17, plus python3 and Ruby for the publish job.
+      - image: cimg/android:2026.07.1
+    resource_class: large
+    working_directory: ~/project
+    environment:
+      # No daemon in a throwaway container, and Gradle's memory kept inside the
+      # box, or the JVM gets OOM-killed mid-build.
+      GRADLE_OPTS: -Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2
+      JAVA_TOOL_OPTIONS: -Xmx3g
+
+commands:
+  setup_flutter:
+    description: Install the pinned Flutter SDK and fetch packages, both cached.
+    steps:
+      - restore_cache:
+          keys:
+            - flutter-<< pipeline.parameters.flutter_version >>-{{ arch }}
+      - run:
+          name: Install Flutter << pipeline.parameters.flutter_version >>
+          command: |
+            set -euo pipefail
+            if [ ! -x "$HOME/flutter/bin/flutter" ]; then
+              git clone --depth 1 --branch "<< pipeline.parameters.flutter_version >>" \
+                https://github.com/flutter/flutter.git "$HOME/flutter"
+            fi
+            echo 'export PATH="$HOME/flutter/bin:$HOME/.pub-cache/bin:$PATH"' >> "$BASH_ENV"
+            source "$BASH_ENV"
+            # Fail loudly if the cache ever holds a different SDK than the pin.
+            flutter --version
+            flutter precache --android --no-ios
+      - save_cache:
+          key: flutter-<< pipeline.parameters.flutter_version >>-{{ arch }}
+          paths:
+            - ~/flutter
+      - restore_cache:
+          keys:
+            - pub-{{ checksum "pubspec.lock" }}
+      - run: flutter pub get
+      - save_cache:
+          key: pub-{{ checksum "pubspec.lock" }}
+          paths:
+            - ~/.pub-cache
+
+  fetch_tags:
+    description: Fetch every tag; the versionCode and the notes' diff range need them.
+    steps:
+      - run:
+          name: Fetch tags
+          # `checkout` fetches only the ref being built, so the tag count (the
+          # versionCode) would collapse to 1 and the previous tag would be absent.
+          command: git fetch --force --tags --quiet origin
+
+jobs:
+  verify:
+    executor: android
+    steps:
+      - checkout
+      - setup_flutter
+      - run:
+          name: Analyze
+          command: flutter analyze
+      - run:
+          name: Format
+          # The page width is in analysis_options.yaml, so this matches local runs.
+          command: dart format --output=none --set-exit-if-changed .
+      - run:
+          name: Test
+          command: flutter test
+      - fetch_tags
+      - run:
+          name: Release notes generator (dry run)
+          # A smoke test of the tool the release path depends on; it writes
+          # nothing. --force because a changelog for this versionCode is often
+          # already committed, and without it the model is never called.
+          # --strict only when the key is present: a build without the context
+          # (a fork, or the release workflow's verify) must still pass.
+          command: |
+            set -euo pipefail
+            if [ -n "${GEMINI_API_KEY:-}" ]; then
+              make changelog ARGS="--dry-run --force --strict"
+            else
+              echo "note: no GEMINI_API_KEY here, so the model isn't called. The"
+              echo "      diff range, the file filter and the prompt are still checked."
+              make changelog ARGS="--dry-run --force"
+            fi
+
+  build_aab:
+    executor: android
+    steps:
+      - checkout
+      - setup_flutter
+      - fetch_tags
+      - run:
+          name: Tag matches the pubspec version
+          # Catch "forgot to bump the pubspec" in seconds rather than at Play.
+          # Only the versionName is checked: the versionCode is the tag count,
+          # so it can't be forgotten or reused.
+          command: |
+            set -euo pipefail
+            tag_version="${CIRCLE_TAG#v}"
+            semver="$(awk '/^version:/ {print $2; exit}' pubspec.yaml)"
+            semver="${semver%%+*}"
+            code="$(git tag --list 'v[0-9]*' | wc -l | tr -d ' ')"
+            echo "tag=$CIRCLE_TAG  pubspec=$semver  versionCode=$code"
+            if [ "$tag_version" != "$semver" ]; then
+              echo
+              echo "Tag $CIRCLE_TAG doesn't match pubspec version $semver."
+              echo "Set 'version: $tag_version' in pubspec.yaml, commit, then tag again."
+              exit 1
+            fi
+      - run:
+          name: Write the signing secrets
+          # From the play-release context, never the repo. The container is
+          # thrown away after the job.
+          command: |
+            set -euo pipefail
+            : "${ANDROID_KEYSTORE_BASE64:?set it in the play-release context}"
+            : "${ANDROID_KEYSTORE_PASSWORD:?set it in the play-release context}"
+            : "${ANDROID_KEY_ALIAS:?set it in the play-release context}"
+            : "${ANDROID_KEY_PASSWORD:?set it in the play-release context}"
+
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/app/upload-keystore.jks
+
+            # storeFile resolves against android/app (build.gradle.kts). No
+            # heredoc: CircleCI reads the double-angle marker as a parameter,
+            # comments included, and rejects the config.
+            {
+              echo "storeFile=upload-keystore.jks"
+              echo "storePassword=$ANDROID_KEYSTORE_PASSWORD"
+              echo "keyAlias=$ANDROID_KEY_ALIAS"
+              echo "keyPassword=$ANDROID_KEY_PASSWORD"
+            } > android/key.properties
+      - restore_cache:
+          keys:
+            - gradle-{{ checksum "android/gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "android/app/build.gradle.kts" }}
+      - run:
+          name: Build the signed AAB
+          # Through the Makefile, so CI and a local release build can't drift.
+          command: make build-aab
+      - save_cache:
+          key: gradle-{{ checksum "android/gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "android/app/build.gradle.kts" }}
+          paths:
+            - ~/.gradle/caches
+            - ~/.gradle/wrapper
+      - run:
+          name: Confirm the AAB is upload-key signed, not debug signed
+          # A debug-signed bundle builds fine and Play rejects it later.
+          command: |
+            set -euo pipefail
+            aab=build/app/outputs/bundle/release/app-release.aab
+            ls -l "$aab"
+            if ! jarsigner -verify "$aab" >/dev/null 2>&1; then
+              echo "The AAB isn't signed."; exit 1
+            fi
+            if unzip -p "$aab" 'META-INF/*.RSA' 2>/dev/null | keytool -printcert 2>/dev/null | grep -qi "CN=Android Debug"; then
+              echo "The AAB is DEBUG signed: key.properties wasn't picked up."; exit 1
+            fi
+            echo "Signed with the upload key."
+      - store_artifacts:
+          path: build/app/outputs/bundle/release
+          destination: aab
+      # Absolute, matching publish_internal's `at:`.
+      - persist_to_workspace:
+          root: ~/project
+          paths:
+            - build/app/outputs/bundle/release
+
+  publish_internal:
+    executor: android
+    steps:
+      - checkout
+      - attach_workspace:
+          at: ~/project
+      - run:
+          name: Confirm the AAB arrived from the workspace
+          command: |
+            set -euo pipefail
+            aab=build/app/outputs/bundle/release/app-release.aab
+            if [ ! -f "$aab" ]; then
+              echo "No AAB in the workspace at $aab."
+              echo "This job publishes what build_aab built; re-running it alone has no workspace."
+              ls -laR build/app/outputs 2>/dev/null || echo "  no build/app/outputs at all"
+              exit 1
+            fi
+            ls -lh "$aab"
+      - run:
+          name: Write the Play service-account key
+          command: |
+            set -euo pipefail
+            : "${PLAY_SERVICE_ACCOUNT_JSON_BASE64:?set it in the play-release context}"
+            echo "$PLAY_SERVICE_ACCOUNT_JSON_BASE64" | base64 -d > android/fastlane/play-service-account.json
+            python3 -c 'import json;d=json.load(open("android/fastlane/play-service-account.json"));print("service account:",d["client_email"])'
+      - restore_cache:
+          keys:
+            - bundler-{{ checksum "android/Gemfile.lock" }}
+      - run:
+          name: Install fastlane
+          command: |
+            set -euo pipefail
+            cd android
+            bundle config set --local path vendor/bundle
+            bundle install --jobs 4 --retry 3
+      - save_cache:
+          key: bundler-{{ checksum "android/Gemfile.lock" }}
+          paths:
+            - android/vendor/bundle
+      - fetch_tags
+      # Before the notes, which start from the release testers actually got:
+      # only Play knows which tag that was. `internal` also uses the answer to
+      # skip a versionCode Play already holds.
+      - run:
+          name: Ask Play which versionCode it already has
+          # Never fails the release: the notes fall back to the previous tag.
+          command: |
+            set -euo pipefail
+            cd android
+            if ! bundle exec fastlane released_version_code; then
+              echo "note: couldn't read Play's version codes; the notes fall back to the previous tag."
+            fi
+      - run:
+          name: Write the release notes with Gemini
+          # Writes android/fastlane/metadata/android/en-US/changelogs/<versionCode>.txt.
+          # A committed one is kept as is. Never fails the release: a missing key
+          # or an unreachable API writes a neutral line, loudly. Read the output:
+          # this text goes to testers.
+          command: |
+            set -euo pipefail
+            if [ -z "${GEMINI_API_KEY:-}" ]; then
+              echo "note: GEMINI_API_KEY isn't in the play-release context, so the notes will be generic."
+            fi
+            since=""
+            if [ -s build/play-version-code.txt ]; then
+              since="--since-version-code $(cat build/play-version-code.txt)"
+            fi
+            make changelog ARGS="$since"
+      - store_artifacts:
+          path: android/fastlane/metadata/android/en-US/changelogs
+          destination: changelogs
+      - run:
+          name: Upload to the internal testing track
+          # An absolute path: fastlane has no single working directory.
+          command: |
+            set -euo pipefail
+            export RELEASE_AAB="$PWD/build/app/outputs/bundle/release/app-release.aab"
+            cd android && bundle exec fastlane internal
+      - store_artifacts:
+          path: android/fastlane/report.xml
+          destination: fastlane-report.xml
+
+workflows:
+  # Every branch push. play-release is attached so the notes dry run really
+  # calls Gemini, which means a branch build can read the shared upload key and
+  # the Play key too. Keep "Pass secrets to builds from forked pull requests" off
+  # in every project that uses the context, or a fork's pull request could read
+  # them.
+  verify:
+    jobs:
+      - verify:
+          context: play-release
+          filters:
+            tags:
+              ignore: /.*/
+
+  # git tag v1.0.1 && git push origin v1.0.1
+  release:
+    jobs:
+      # No context: its notes dry run then skips --strict, so a Gemini outage
+      # can't block a release the release path is built to survive.
+      - verify:
+          filters: &release_only
+            branches:
+              ignore: /.*/
+            tags:
+              only: /^v\d+\.\d+\.\d+$/
+      - build_aab:
+          requires: [verify]
+          context: play-release
+          filters: *release_only
+      - publish_internal:
+          requires: [build_aab]
+          context: play-release
+          filters: *release_only
