@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:powerpilot/data/cloud_source.dart';
 import 'package:powerpilot/data/mock_source.dart';
@@ -6,6 +9,8 @@ import 'package:powerpilot/data/source.dart';
 import 'package:powerpilot/models/ups.dart';
 import 'package:powerpilot/models/ups_view.dart';
 import 'package:powerpilot/ui/format.dart';
+
+import 'fakes.dart';
 
 Json _snapshot({String mode = 'line', Json status = const {}, Json extra = const {}}) => {
   'connected': true,
@@ -252,6 +257,103 @@ void main() {
       expect(runtimeMinutes(100, 12, 9), 480);
       // The design's on-battery screen: 74.5% at 499 W is about 9 min.
       expect(runtimeMinutes(74.5, 499, 9)!, closeTo(9.0, 0.2));
+    });
+  });
+
+  group('push', () {
+    late HttpServer server;
+    late List<(String, String, Map<String, dynamic>)> calls;
+    var oldServer = false;
+
+    // powerpilot-server's /api/push routes, recorded.
+    setUp(() async {
+      calls = [];
+      oldServer = false;
+      server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+      server.listen((req) async {
+        expect(req.headers.value('authorization'), 'Bearer t0ken');
+        final body = jsonDecode(await utf8.decoder.bind(req).join()) as Map<String, dynamic>;
+        calls.add((req.method, req.uri.path, body));
+        if (oldServer) {
+          req.response.statusCode = 404;
+          req.response.write('404 page not found');
+        } else {
+          req.response.headers.contentType = ContentType.json;
+          req.response.write(req.uri.path == '/api/push/register' && req.method == 'POST' ? '{"ok":true,"sending":true}' : '{"ok":true}');
+        }
+        await req.response.close();
+      });
+    });
+    tearDown(() => server.close(force: true));
+
+    Pairing paired() => Pairing.cloud(server: Uri.parse('http://127.0.0.1:${server.port}'), token: 't0ken', device: 'home');
+
+    test('turning it on registers the token and sends a test', () async {
+      final platform = FakePushPlatform();
+      final push = testPush(platform: platform);
+      await push.init();
+      await push.attach(paired());
+      expect(push.available, isTrue);
+      expect(calls, isEmpty, reason: 'off by default: nothing registered');
+
+      expect(await push.setEnabled(true), contains('test one is on its way'));
+      expect(calls.map((c) => '${c.$1} ${c.$2}'), ['POST /api/push/register', 'POST /api/push/test']);
+      expect(calls.first.$3, {'token': platform.fcmToken, 'platform': 'android', 'outage_updates': false});
+      expect(push.enabled, isTrue);
+
+      await push.setOutageUpdates(true);
+      expect(calls.last.$3['outage_updates'], isTrue);
+
+      await push.setEnabled(false);
+      expect(calls.last.$1, 'DELETE');
+      expect(platform.deleted, 1, reason: 'the token is deleted too, so nothing arrives even if the server missed it');
+      expect(push.enabled, isFalse);
+    });
+
+    test('a refused permission registers nothing', () async {
+      final push = testPush(platform: FakePushPlatform(allow: false));
+      await push.init();
+      await push.attach(paired());
+      expect(await push.setEnabled(true), contains('blocked'));
+      expect(push.blocked, isTrue);
+      expect(push.enabled, isFalse);
+      expect(calls, isEmpty);
+    });
+
+    test('a server from before push says so, and push stays off', () async {
+      oldServer = true;
+      final push = testPush(platform: FakePushPlatform());
+      await push.init();
+      await push.attach(paired());
+      await expectLater(
+        push.setEnabled(true),
+        throwsA(isA<ApiError>().having((e) => e.message, 'message', contains('update powerpilot-server'))),
+      );
+      expect(push.enabled, isFalse);
+    });
+
+    test('the demo and builds without Firebase have no push', () async {
+      final demo = testPush(platform: FakePushPlatform());
+      await demo.init();
+      await demo.attach(const Pairing.demo());
+      expect(demo.available, isFalse);
+
+      final noFirebase = testPush();
+      await noFirebase.init();
+      await noFirebase.attach(paired());
+      expect(noFirebase.available, isFalse);
+    });
+
+    test('unpairing unregisters this phone', () async {
+      final platform = FakePushPlatform();
+      final push = testPush(platform: platform);
+      await push.init();
+      await push.attach(paired());
+      await push.setEnabled(true);
+      await push.detach();
+      expect(calls.last.$1, 'DELETE');
+      expect(push.enabled, isFalse);
+      expect(push.available, isFalse);
     });
   });
 }

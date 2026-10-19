@@ -37,11 +37,11 @@ The screenshots use the built-in demo (see [Try it without a server](#try-it-wit
 | **Controls** | Turn the UPS alarm on or off, mute it for the current alarm, set the low battery alarm, run the 10-second self-test, and shut the outlets down or restart them after a delay. Shutdown and restart always ask first. |
 | **Trends** | Input and output voltage, load and battery, over the last hour, 24 hours, 7 days or 30 days. Tap a bar to read it. Temperature appears for a UPS that reports it. |
 | **Events** | A week at a glance, each day's outages, time on battery, lowest charge and peak load, filters, and a CSV export through the share sheet. |
-| **Settings** | The UPS's ratings, the low battery alarm, shutting down the paired Mac, battery capacity for the runtime estimate, how long logs are kept, and the server. |
+| **Settings** | The UPS's ratings, push notifications and outage updates, the low battery alarm, shutting down the paired Mac, battery capacity for the runtime estimate, how long logs are kept, and the server. |
+| **Notifications** | Power cuts, power back, a low battery, overload, faults, self-test results, and a device or the server going quiet, each with the reading: "Battery 87.0%, about 22 min left · Load 31.0% (372 W)". **Outage updates** add one every 5 minutes on battery. Tapping one opens Events. Android only for now. |
 
 Readings are the same as the desktop app's: voltages, load and status from the
 UPS, charge with ViewPower's formula, and runtime from PowerPilot's own model.
-Not yet: push notifications, which need the server's FCM support first.
 
 ## How it connects
 
@@ -71,6 +71,20 @@ UPS ──USB──▶ ESP32 bridge, or PowerPilot on a computer (Publish mode)
 The server address must be `https`. **Settings → Unpair this phone** forgets
 both; revoke the token on the admin page too.
 
+### Notifications
+
+`powerpilot-server` sends them through Firebase Cloud Messaging; the phone only
+hands it a token. **Settings → Push notifications** asks Android for permission,
+registers this phone with the server and has it send a test notification at
+once, so you see the whole chain work. Turning it off, or unpairing, deletes
+the phone's token, so nothing more arrives even if the server can't be told.
+
+Two Android channels, under the app's notification settings: **Power alerts**
+(power cuts, a low battery, faults, a device going offline) and **Updates**
+(power back, self-test results, outage updates). The server needs a Firebase
+key (`PP_FCM_KEY_BASE64`, in its README), and the app a Firebase config: see
+[docs/release.md](docs/release.md#5-firebase-push-notifications).
+
 ### Try it without a server
 
 **Try with demo data** on the pairing screen runs a simulated UPS: it cycles
@@ -87,7 +101,7 @@ flutter pub get
 flutter run --dart-define=DEMO=battery      # the demo, during a power cut
 flutter run                                 # the pairing screen
 flutter analyze && flutter test             # what CI checks, with the format check:
-dart format --output=none --set-exit-if-changed .
+dart format --output=none --set-exit-if-changed lib test
 ```
 
 To render every screen at the design's size, with the real fonts, into a folder:

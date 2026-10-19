@@ -98,15 +98,39 @@ every app in the developer account: access is granted app by app.
    off** (or a fork's pull request could read them), and **"Only build pull
    requests" off** (or tags never build).
 
+### 5. Firebase (push notifications)
+
+`powerpilot-server` sends push notifications through Firebase Cloud Messaging.
+One Firebase project can serve every app; each app adds itself to it.
+
+1. [console.firebase.google.com](https://console.firebase.google.com): create a
+   project (Analytics isn't needed), then *Add app → Android* with the app's
+   package, `com.mannapperuma.powerpilot`, and download `google-services.json`.
+2. **The app's config,** per app: put the file at
+   `android/app/google-services.json` for local builds (git-ignored), and add it
+   to CircleCI as a **project** environment variable (*Project Settings →
+   Environment Variables*), `GOOGLE_SERVICES_JSON_BASE64`, from
+   `base64 -i google-services.json | pbcopy`. It's this app's, so it doesn't go
+   in the shared `play-release` context. Without it, CI builds the app with
+   push off and says so in the build output.
+3. **The server's key,** once per Firebase project: *Project settings → Service
+   accounts → Generate new private key*. Put it in `powerpilot-server`'s `.env`
+   as `PP_FCM_KEY_BASE64` (`base64 -i key.json | tr -d '\n'`), delete the
+   downloaded file, and redeploy the server.
+4. **Check it:** on a phone with the release, *Settings → Push notifications*.
+   A test notification arrives within seconds.
+
 ## Adding another app
 
 Copy the pipeline, change two things, and do the Play side once:
 
 1. **Copy** `.circleci/config.yml`, `Makefile`, `tool/gen_changelog.py`,
-   `android/Gemfile`, `android/Gemfile.lock` and `android/fastlane/` (without
-   the changelogs), plus the signing block and `import java.util.Properties`
-   from `android/app/build.gradle.kts`, the `formatter:` lines of
-   `analysis_options.yaml` and the release lines of `.gitignore`.
+   `android/Gemfile` and `android/fastlane/` (without the changelogs), plus the
+   signing block, the Google Services block and `import java.util.Properties`
+   from `android/app/build.gradle.kts` (and the plugin line in
+   `android/settings.gradle.kts`), the `formatter:` and `analyzer:` lines of
+   `analysis_options.yaml` and the release lines of `.gitignore`. For push, add
+   the app to Firebase too (step 5).
 2. **Change** `package_name` in `android/fastlane/Appfile`, and `APP_NAME` and
    `APP_DESCRIPTION` at the top of `tool/gen_changelog.py`. Nothing else names
    the app. (`priority()` there ranks `lib/ui/screens/` first; adjust it if the

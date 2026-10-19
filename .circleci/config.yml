@@ -88,7 +88,7 @@ jobs:
       - run:
           name: Format
           # The page width is in analysis_options.yaml, so this matches local runs.
-          command: dart format --output=none --set-exit-if-changed .
+          command: dart format --output=none --set-exit-if-changed lib test
       - run:
           name: Test
           command: flutter test
@@ -156,6 +156,19 @@ jobs:
               echo "keyAlias=$ANDROID_KEY_ALIAS"
               echo "keyPassword=$ANDROID_KEY_PASSWORD"
             } > android/key.properties
+      - run:
+          name: Write the Firebase config (push notifications)
+          # Per app, so it's a project environment variable, not in the shared
+          # context. Without it the app builds with push off; say so loudly.
+          command: |
+            set -euo pipefail
+            if [ -n "${GOOGLE_SERVICES_JSON_BASE64:-}" ]; then
+              echo "$GOOGLE_SERVICES_JSON_BASE64" | base64 -d > android/app/google-services.json
+              python3 -c 'import json;d=json.load(open("android/app/google-services.json"));print("Firebase project:",d["project_info"]["project_id"])'
+            else
+              echo "WARNING: no GOOGLE_SERVICES_JSON_BASE64 in the project's environment variables,"
+              echo "         so this build has no push notifications (docs/release.md)."
+            fi
       - restore_cache:
           keys:
             - gradle-{{ checksum "android/gradle/wrapper/gradle-wrapper.properties" }}-{{ checksum "android/app/build.gradle.kts" }}

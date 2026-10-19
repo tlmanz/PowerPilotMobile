@@ -58,6 +58,22 @@ Future<void> editLowBattery(BuildContext context, UpsController ups) => _edit(
   saved: (v) => 'Low battery alarm set to $v%',
 );
 
+String _pushSubtitle(PushController p) {
+  if (p.demo) return 'Pair a PowerPilot server to get them';
+  if (!p.supported) return Platform.isAndroid ? 'This build has no Firebase project' : 'On Android for now';
+  if (p.blocked) return 'Blocked: allow them for PowerPilot in Android settings';
+  return 'Power events, each with a summary of the reading';
+}
+
+Future<void> _pushAction(BuildContext context, Future<String> Function() action) async {
+  try {
+    final message = await action();
+    if (context.mounted) toast(context, message);
+  } catch (e) {
+    if (context.mounted) toast(context, describeError(e), bad: true);
+  }
+}
+
 String _connection(UpsController ups) {
   if (ups.source.isDemo) return 'Simulated';
   return switch (ups.device.connection) {
@@ -86,21 +102,42 @@ class SettingsScreen extends StatelessWidget {
         Section(
           'Alerts',
           children: [
-            const ControlRow(
-              icon: LucideIcons.bell,
-              wash: AppColors.badWash,
-              iconColor: AppColors.critical,
-              title: 'Push notifications',
-              subtitle: "Coming soon: the server doesn't send push notifications yet",
-              trailing: AppToggle(value: false, onChanged: null, label: 'Push notifications'),
+            ListenableBuilder(
+              listenable: app.push,
+              builder: (context, _) {
+                final p = app.push;
+                return ControlRow(
+                  icon: LucideIcons.bell,
+                  wash: AppColors.badWash,
+                  iconColor: AppColors.critical,
+                  title: 'Push notifications',
+                  subtitle: _pushSubtitle(p),
+                  trailing: AppToggle(
+                    value: p.enabled && p.available,
+                    label: 'Push notifications',
+                    onChanged: p.available && !p.busy ? (on) => _pushAction(context, () => p.setEnabled(on)) : null,
+                  ),
+                );
+              },
             ),
-            const ControlRow(
-              icon: LucideIcons.timer,
-              wash: AppColors.warnWash,
-              iconColor: AppColors.warnInk,
-              title: 'Outage updates',
-              subtitle: 'Coming soon: every 5 minutes on battery',
-              trailing: AppToggle(value: false, onChanged: null, label: 'Outage updates'),
+            ListenableBuilder(
+              listenable: app.push,
+              builder: (context, _) {
+                final p = app.push;
+                final on = p.available && p.enabled;
+                return ControlRow(
+                  icon: LucideIcons.timer,
+                  wash: AppColors.warnWash,
+                  iconColor: AppColors.warnInk,
+                  title: 'Outage updates',
+                  subtitle: on ? 'Every 5 minutes on battery' : 'Every 5 minutes on battery, with notifications on',
+                  trailing: AppToggle(
+                    value: on && p.outageUpdates,
+                    label: 'Outage updates',
+                    onChanged: on && !p.busy ? (v) => _pushAction(context, () => p.setOutageUpdates(v)) : null,
+                  ),
+                );
+              },
             ),
             ControlRow(
               icon: LucideIcons.batteryLow,

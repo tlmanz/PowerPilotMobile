@@ -13,6 +13,8 @@ import 'package:powerpilot/data/pairing.dart';
 import 'package:powerpilot/main.dart';
 import 'package:powerpilot/state/controllers.dart';
 
+import 'fakes.dart';
+
 final _out = Platform.environment['SCREENSHOTS'];
 
 class _MemoryStore extends PairingStore {
@@ -49,7 +51,7 @@ Future<void> _run(WidgetTester tester, String? scenario, List<String> tabs) asyn
   addTearDown(tester.view.reset);
 
   final key = GlobalKey();
-  final app = AppController(store: _MemoryStore(), demoScenario: scenario);
+  final app = AppController(store: _MemoryStore(), demoScenario: scenario, push: testPush());
   await app.init();
   await tester.pumpWidget(RepaintBoundary(key: key, child: PowerPilotApp(app)));
   final context = tester.element(find.byType(Scaffold).first);

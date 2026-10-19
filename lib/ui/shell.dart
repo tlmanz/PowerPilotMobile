@@ -1,9 +1,12 @@
 // The five tabs, under the design's Tab Bar.
+import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
+import '../data/push.dart';
+import '../state/controllers.dart';
 import 'screens/controls_screen.dart';
 import 'screens/events_screen.dart';
 import 'screens/home_screen.dart';
@@ -44,8 +47,60 @@ class Shell extends StatefulWidget {
 
 class _ShellState extends State<Shell> {
   AppTab _tab = AppTab.home;
+  final _subs = <StreamSubscription<PushMessage>>[];
 
   void _go(AppTab t) => setState(() => _tab = t);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (_subs.isNotEmpty) return;
+    final push = AppScope.of(context).push;
+    // A tapped notification opens Events, where its event is.
+    _subs
+      ..add(push.opened.listen((_) => _go(AppTab.events)))
+      ..add(push.foreground.listen(_banner));
+    if (push.launchedFrom != null) {
+      push.launchedFrom = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) => _go(AppTab.events));
+    }
+  }
+
+  /// Android shows nothing for a notification that arrives while the app is
+  /// open, so the app does.
+  void _banner(PushMessage m) {
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.hideCurrentSnackBar();
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 6),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              m.title,
+              style: text(14, weight: FontWeight.w700, color: Colors.white),
+            ),
+            if (m.body.isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(m.body, style: text(13, color: const Color(0xCCFFFFFF), height: 1.35)),
+            ],
+          ],
+        ),
+        action: SnackBarAction(label: 'View', textColor: const Color(0xFF8DB4FF), onPressed: () => _go(AppTab.events)),
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) => ShellScope(

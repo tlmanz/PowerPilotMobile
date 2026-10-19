@@ -43,6 +43,7 @@ app.*.map.json
 # key.properties are covered by android/.gitignore.
 /android/fastlane/play-service-account.json
 /android/fastlane/report.xml
+/android/app/google-services.json
 /android/vendor/
 /android/.bundle/
 /android/Gemfile.lock
@@ -52,3 +53,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Root
+key.json

@@ -5,6 +5,8 @@ import 'package:powerpilot/main.dart';
 import 'package:powerpilot/state/controllers.dart';
 import 'package:powerpilot/ui/widgets.dart';
 
+import 'fakes.dart';
+
 /// Keeps the pairing in memory instead of the Keychain.
 class _MemoryStore extends PairingStore {
   _MemoryStore([this.saved]);
@@ -25,7 +27,7 @@ Future<AppController> _launch(WidgetTester tester, {Pairing? paired}) async {
   tester.view.physicalSize = const Size(390, 844) * 3;
   tester.view.devicePixelRatio = 3;
   addTearDown(tester.view.reset);
-  final app = AppController(store: _MemoryStore(paired));
+  final app = AppController(store: _MemoryStore(paired), push: testPush());
   await app.init();
   await tester.pumpWidget(PowerPilotApp(app));
   await tester.pump(const Duration(milliseconds: 100));
@@ -61,7 +63,7 @@ void main() {
     for (final paired in [null, const Pairing.demo()]) {
       tester.view.physicalSize = Size.zero;
       tester.view.devicePixelRatio = 3;
-      final app = AppController(store: _MemoryStore(paired));
+      final app = AppController(store: _MemoryStore(paired), push: testPush());
       await app.init();
       await tester.pumpWidget(PowerPilotApp(app));
       await tester.pump();

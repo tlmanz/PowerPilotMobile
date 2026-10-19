@@ -188,6 +188,38 @@ class CloudSource implements UpsSource {
     }
   }
 
+  /// Push (powerpilot-server's /api/push): hands the server this phone's FCM
+  /// token. Returns whether the server can send (it has a Firebase key).
+  static Future<bool> registerPush(Uri server, String token, {required String fcmToken, required bool outageUpdates}) => _push(
+    server,
+    token,
+    'POST',
+    '/api/push/register',
+    {'token': fcmToken, 'platform': 'android', 'outage_updates': outageUpdates},
+  ).then((data) => data is Map && data['sending'] == true);
+
+  static Future<void> unregisterPush(Uri server, String token, String fcmToken) =>
+      _push(server, token, 'DELETE', '/api/push/register', {'token': fcmToken});
+
+  /// Asks the server to send this phone a notification now.
+  static Future<void> testPush(Uri server, String token, String fcmToken) =>
+      _push(server, token, 'POST', '/api/push/test', {'token': fcmToken});
+
+  static Future<Object?> _push(Uri server, String token, String method, String path, Map<String, Object> body) async {
+    final api = ApiClient(server, token);
+    try {
+      return await api.json(method, path, body: body);
+    } on ApiError catch (e) {
+      // A server from before push answers its unknown routes with a bare 404.
+      if (e.status == 404 && e.message.startsWith('The server answered')) {
+        throw const ApiError("This server doesn't send notifications yet: update powerpilot-server", status: 404);
+      }
+      rethrow;
+    } finally {
+      api.close();
+    }
+  }
+
   @override
   String get label => deviceId;
 
